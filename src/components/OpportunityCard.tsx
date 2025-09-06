@@ -42,7 +42,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ opportunity, onClick 
             {getTypeIcon(opportunity.type)}
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white capitalize">{opportunity.type}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white capitalize" title={`Type: ${opportunity.type}`}>{opportunity.type}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {new Date(opportunity.timestamp).toLocaleDateString()}
             </p>
@@ -60,7 +60,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ opportunity, onClick 
       </div>
 
       <div className="mb-4">
-        <h4 className="font-medium text-gray-900 dark:text-white mb-2">{opportunity.title}</h4>
+        <h4 className="font-medium text-gray-900 dark:text-white mb-2" title={opportunity.title}>{opportunity.title}</h4>
         <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{opportunity.description}</p>
       </div>
 

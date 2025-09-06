@@ -14,70 +14,12 @@ export class OpportunityService {
   }
 
   async getOpportunities(): Promise<OpportunityAlert[]> {
-    // Generate opportunities based on real market analysis
-    return this.generateMockOpportunities();
-  }
-
-  private generateMockOpportunities(): OpportunityAlert[] {
-    const opportunities: OpportunityAlert[] = [
-      {
-        id: '1',
-        type: 'arbitrage',
-        title: 'Cross-Exchange Price Discrepancy',
-        description: 'AAPL trading at $150.20 on NYSE vs $150.45 on NASDAQ. Potential arbitrage opportunity with low risk.',
-        confidence: 85,
-        potentialReturn: 0.17,
-        riskLevel: 'Low',
-        markets: ['NYSE', 'NASDAQ'],
-        timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-      },
-      {
-        id: '2',
-        type: 'investment',
-        title: 'Gold ETF Momentum Signal',
-        description: 'GLD showing strong bullish momentum with RSI oversold conditions. Technical indicators suggest upward movement.',
-        confidence: 72,
-        potentialReturn: 4.2,
-        riskLevel: 'Medium',
-        markets: ['US', 'Commodities'],
-        timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-      },
-      {
-        id: '3',
-        type: 'arbitrage',
-        title: 'Currency Pair Divergence',
-        description: 'USD/CNY showing unusual spread between onshore and offshore rates. Short-term convergence expected.',
-        confidence: 91,
-        potentialReturn: 0.32,
-        riskLevel: 'Low',
-        markets: ['Forex', 'China', 'US'],
-        timestamp: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
-      },
-      {
-        id: '4',
-        type: 'investment',
-        title: 'Hong Kong Tech Rebound',
-        description: 'Hang Seng Tech Index oversold with positive regulatory news. Value opportunity emerging in HK tech stocks.',
-        confidence: 68,
-        potentialReturn: 8.5,
-        riskLevel: 'High',
-        markets: ['Hong Kong', 'Technology'],
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: '5',
-        type: 'arbitrage',
-        title: 'Commodity Futures Spread',
-        description: 'WTI-Brent crude spread widening beyond historical norms. Mean reversion trade opportunity.',
-        confidence: 79,
-        potentialReturn: 1.8,
-        riskLevel: 'Medium',
-        markets: ['Energy', 'Futures'],
-        timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-      },
-    ];
-
-    return opportunities;
+    // Only compute from real data; if analysis fails, return empty.
+    try {
+      return await this.generateRealTimeOpportunities();
+    } catch {
+      return [];
+    }
   }
 
   async generateRealTimeOpportunities(): Promise<OpportunityAlert[]> {
@@ -204,18 +146,7 @@ export class OpportunityService {
 
     } catch (error) {
       console.error('Error generating real-time opportunities:', error);
-      // Return a fallback opportunity
-      return [{
-        id: `fallback_${Date.now()}`,
-        type: 'other' as 'investment',
-        title: 'Market Analysis in Progress',
-        description: 'Our systems are analyzing current market conditions to identify new opportunities. Check back in a few minutes.',
-        confidence: 50,
-        potentialReturn: 0,
-        riskLevel: 'Low',
-        markets: ['General'],
-        timestamp: now,
-      }];
+      return [];
     }
   }
 

@@ -21,11 +21,31 @@ const MarketCard: React.FC<MarketCardProps> = ({ data, className = '' }) => {
     return `$${formatNumber(marketCap)}`;
   };
 
+  const instrumentDescriptions: Record<string, string> = {
+    SPY: 'SPDR S&P 500 ETF – tracks the S&P 500 (US large-cap).',
+    QQQ: 'Invesco QQQ – tracks the Nasdaq-100 (US tech-focused).',
+    DIA: 'SPDR Dow Jones Industrial Average ETF – tracks the Dow 30.',
+    IWM: 'iShares Russell 2000 – tracks US small-cap equities.',
+    VTI: 'Vanguard Total Stock Market – broad US equity market.',
+    MCHI: 'iShares MSCI China – tracks large & mid-cap China equities.',
+    FXI: 'iShares China Large-Cap – tracks large-cap China equities.',
+    EWH: 'iShares MSCI Hong Kong – tracks Hong Kong equities.',
+    EWS: 'iShares MSCI Singapore – tracks Singapore equities.',
+  };
+
+  const getTooltip = () => {
+    const key = (data.symbol || '').toUpperCase();
+    const mapped = instrumentDescriptions[key];
+    if (mapped) return mapped;
+    if (data.name) return `${data.symbol} – ${data.name}`;
+    return data.symbol;
+  };
+
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow ${className}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{data.symbol}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white" title={getTooltip()}>{data.symbol}</h3>
           <div className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
             ${formatNumber(data.price)}
           </div>

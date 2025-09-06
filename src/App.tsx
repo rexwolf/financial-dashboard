@@ -120,23 +120,19 @@ function App() {
     try {
       setLoading(true);
       
-      // All data sources are now real APIs - fetch in parallel for better performance
+      // Phase 1 (non-Alpha or minimal Alpha): indexes (<=4 AV calls), forex (free), crypto (CoinGecko), news
       const [
         markets,
         forex, 
         crypto,
         pastMarketEvents,
-        upcomingMarketEvents,
-        commodities,
-        opportunitiesData
+        upcomingMarketEvents
       ] = await Promise.allSettled([
         marketDataService.getKeyMarketIndexes(),
         marketDataService.getTopForexPairs(),
         marketDataService.getTopCryptocurrencies(),
         marketDataService.getPastMarketEvents(),
         marketDataService.getUpcomingMarketEvents(),
-        marketDataService.getCommodityPrices(),
-        opportunityService.getOpportunities(),
       ]);
 
       // Set data and cache if successful
@@ -175,18 +171,13 @@ function App() {
         console.error('Error fetching upcoming events:', upcomingMarketEvents.reason);
       }
 
-      if (commodities.status === 'fulfilled') {
-        setCommodityData(commodities.value);
-        await storageService.storeMarketData('commodities', commodities.value, 5 * 60 * 1000);
-      } else {
-        console.error('Error fetching commodity data:', commodities.reason);
-      }
-
-      if (opportunitiesData.status === 'fulfilled') {
-        setOpportunities(opportunitiesData.value);
-        await storageService.storeMarketData('opportunities', opportunitiesData.value, 10 * 60 * 1000); // 10min cache
-      } else {
-        console.error('Error fetching opportunities data:', opportunitiesData.reason);
+      // Phase 2: commodities (Alpha Vantage; limited set to stay under limits)
+      try {
+        const commodities = await marketDataService.getCommodityPrices();
+        setCommodityData(commodities);
+        await storageService.storeMarketData('commodities', commodities, 5 * 60 * 1000);
+      } catch (e) {
+        console.error('Error fetching commodity data:', e);
       }
 
     } catch (error) {
@@ -195,6 +186,20 @@ function App() {
       setLoading(false);
     }
   };
+
+  // Fetch opportunities after core data to avoid extra Alpha calls during initial load
+  useEffect(() => {
+    const fetchOpps = async () => {
+      try {
+        const opps = await opportunityService.getOpportunities();
+        setOpportunities(opps);
+        await storageService.storeMarketData('opportunities', opps, 10 * 60 * 1000);
+      } catch (e) {
+        console.error('Error fetching opportunities data:', e);
+      }
+    };
+    fetchOpps();
+  }, []);
 
   const startAutoRefresh = useCallback(() => {
     // Clear existing interval
@@ -403,7 +408,8 @@ function App() {
   const [gainersLosersData, setGainersLosersData] = useState<{
     US?: {gainers: MarketData[], losers: MarketData[]},
     CN?: {gainers: MarketData[], losers: MarketData[]},
-    HK?: {gainers: MarketData[], losers: MarketData[]}
+    HK?: {gainers: MarketData[], losers: MarketData[]},
+    SG?: {gainers: MarketData[], losers: MarketData[]}
   }>({});
   const [commodityGainersLosers, setCommodityGainersLosers] = useState<{
     gainers: CommodityData[],
@@ -416,13 +422,13 @@ function App() {
   }>({gainers: [], losers: []});
 
   useEffect(() => {
-    const fetchGainersLosers = async () => {
+    const fetchMarketGainersLosers = async () => {
       try {
-        const [usData, cnData, hkData, commodityData, cryptoData] = await Promise.allSettled([
+        const [usData, cnData, hkData, sgData, cryptoData] = await Promise.allSettled([
           marketDataService.getTopGainersLosers('US'),
           marketDataService.getTopGainersLosers('CN'),
           marketDataService.getTopGainersLosers('HK'),
-          marketDataService.getCommodityGainersLosers(),
+          marketDataService.getTopGainersLosers('SG'),
           marketDataService.getCryptoGainersLosers(),
         ]);
 
@@ -430,28 +436,32 @@ function App() {
         if (usData.status === 'fulfilled') newData.US = usData.value;
         if (cnData.status === 'fulfilled') newData.CN = cnData.value;
         if (hkData.status === 'fulfilled') newData.HK = hkData.value;
-        
+        if (sgData.status === 'fulfilled') newData.SG = sgData.value;
         setGainersLosersData(newData);
 
-        if (commodityData.status === 'fulfilled') {
-          setCommodityGainersLosers(commodityData.value);
-        }
-
-        if (cryptoData.status === 'fulfilled') {
-          setCryptoGainersLosers(cryptoData.value);
-        }
+        if (cryptoData.status === 'fulfilled') setCryptoGainersLosers(cryptoData.value);
       } catch (error) {
         console.error('Error fetching gainers/losers:', error);
       }
     };
-
-    fetchGainersLosers();
+    fetchMarketGainersLosers();
   }, []);
+
+  // Compute commodity gainers/losers from current commodityData (no extra API calls)
+  useEffect(() => {
+    if (!commodityData || commodityData.length === 0) return;
+    const sorted = [...commodityData].sort((a, b) => b.changePercent - a.changePercent);
+    setCommodityGainersLosers({
+      gainers: sorted.filter(c => c.changePercent > 0).slice(0, 5),
+      losers: sorted.filter(c => c.changePercent < 0).slice(0, 5),
+    });
+  }, [commodityData]);
 
   const renderOverview = () => {
     const usGainersLosers = gainersLosersData.US || { gainers: [], losers: [] };
     const cnGainersLosers = gainersLosersData.CN || { gainers: [], losers: [] };
     const hkGainersLosers = gainersLosersData.HK || { gainers: [], losers: [] };
+    const sgGainersLosers = gainersLosersData.SG || { gainers: [], losers: [] };
     
     const totalVolume = marketData.reduce((sum, m) => sum + m.volume, 0);
     const avgChange = marketData.length > 0 ? marketData.reduce((sum, m) => sum + m.changePercent, 0) / marketData.length : 0;
@@ -509,15 +519,35 @@ function App() {
         {/* Market Indexes Grid */}
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Key Market Indexes</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {marketData.map((market) => (
-              <MarketCard key={market.symbol} data={market} />
-            ))}
-          </div>
+          {(() => {
+            const bySymbols = (symbols: string[]) => marketData.filter(m => symbols.includes(m.symbol.toUpperCase()));
+            const sections = [
+              { title: 'US', symbols: ['SPY','QQQ','DIA','IWM','VTI'] },
+              { title: 'China', symbols: ['FXI','MCHI'] },
+              { title: 'Hong Kong', symbols: ['EWH'] },
+              { title: 'Singapore', symbols: ['EWS'] },
+            ];
+            return (
+              <div className="space-y-6">
+                {sections.map(section => {
+                  const items = bySymbols(section.symbols);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={section.title}>
+                      <h4 className="text-md font-semibold text-gray-800 dark:text-gray-200 mb-3">{section.title}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {items.map(m => (<MarketCard key={m.symbol} data={m} />))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Top Gainers and Losers by Market */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* US Market */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center mb-4">
@@ -532,7 +562,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {usGainersLosers.gainers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (+${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-green-600 dark:text-green-400 font-medium">
                         +{stock.changePercent.toFixed(2)}%
@@ -548,7 +578,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {usGainersLosers.losers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-red-600 dark:text-red-400 font-medium">
                         {stock.changePercent.toFixed(2)}%
@@ -574,7 +604,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {cnGainersLosers.gainers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (+${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-green-600 dark:text-green-400 font-medium">
                         +{stock.changePercent.toFixed(2)}%
@@ -590,7 +620,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {cnGainersLosers.losers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-red-600 dark:text-red-400 font-medium">
                         {stock.changePercent.toFixed(2)}%
@@ -616,7 +646,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {hkGainersLosers.gainers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (+${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-green-600 dark:text-green-400 font-medium">
                         +{stock.changePercent.toFixed(2)}%
@@ -632,7 +662,7 @@ function App() {
                 </h5>
                 <div className="space-y-2">
                   {hkGainersLosers.losers.slice(0, 3).map((stock, index) => (
-                    <div key={stock.symbol} className="flex justify-between items-center text-sm">
+                    <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (${stock.changePercent.toFixed(2)}%)`}>
                       <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
                       <span className="text-red-600 dark:text-red-400 font-medium">
                         {stock.changePercent.toFixed(2)}%
@@ -676,6 +706,43 @@ function App() {
               </div>
             ))}
           </div>
+          {/* Singapore Market */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center mb-4">
+              <span className="text-2xl mr-2">🇸🇬</span>
+              <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Singapore Market</h4>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <h5 className="text-sm font-medium text-green-600 dark:text-green-400 mb-2 flex items-center">
+                  <TrendingUp className="h-4 w-4 mr-1" />
+                  Top Gainers (24h)
+                </h5>
+                <div className="space-y-2">
+                {(gainersLosersData.SG?.gainers || []).slice(0, 3).map((stock) => (
+                  <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (+${stock.changePercent.toFixed(2)}%)`}>
+                    <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
+                    <span className="text-green-600 dark:text-green-400 font-medium">+{stock.changePercent.toFixed(2)}%</span>
+                  </div>
+                ))}
+                </div>
+              </div>
+              <div>
+                <h5 className="text-sm font-medium text-red-600 dark:text-red-400 mb-2 flex items-center">
+                  <TrendingUp className="h-4 w-4 mr-1 rotate-180" />
+                  Top Losers (24h)
+                </h5>
+                <div className="space-y-2">
+                {(gainersLosersData.SG?.losers || []).slice(0, 3).map((stock) => (
+                  <div key={stock.symbol} className="flex justify-between items-center text-sm" title={`${stock.symbol} – ${stock.price.toFixed(2)} (${stock.changePercent.toFixed(2)}%)`}>
+                    <span className="font-medium text-gray-900 dark:text-white">{stock.symbol}</span>
+                    <span className="text-red-600 dark:text-red-400 font-medium">{stock.changePercent.toFixed(2)}%</span>
+                  </div>
+                ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -698,11 +765,31 @@ function App() {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Global Markets</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {marketData.map((market) => (
-                <MarketCard key={market.symbol} data={market} />
-              ))}
-            </div>
+            {(() => {
+              const bySymbols = (symbols: string[]) => marketData.filter(m => symbols.includes(m.symbol.toUpperCase()));
+              const sections = [
+                { title: 'US', symbols: ['SPY','QQQ','DIA','IWM','VTI'] },
+                { title: 'China', symbols: ['FXI','MCHI'] },
+                { title: 'Hong Kong', symbols: ['EWH'] },
+                { title: 'Singapore', symbols: ['EWS'] },
+              ];
+              return (
+                <div className="space-y-6">
+                  {sections.map(section => {
+                    const items = bySymbols(section.symbols);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={section.title}>
+                        <h4 className="text-md font-semibold text-gray-800 dark:text-gray-200 mb-3">{section.title}</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {items.map(m => (<MarketCard key={m.symbol} data={m} />))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* Custom Stock Watchlist */}
             {customStocks.length > 0 && (
@@ -713,7 +800,7 @@ function App() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {customStocks.map((stock) => (
-                    <div key={stock.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group">
+                    <div key={stock.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group" title={`${stock.symbol} – ${stock.name} (${stock.exchange})`}>
                       <button
                         onClick={() => removeFromWatchlist(stock.id, 'stock')}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
@@ -723,7 +810,7 @@ function App() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900 dark:text-white">{stock.symbol}</h4>
+                            <h4 className="font-semibold text-gray-900 dark:text-white" title={stock.name}>{stock.symbol}</h4>
                             <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
                               {stock.exchange}
                             </span>
@@ -774,10 +861,10 @@ function App() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Commodities - Top 8 Most Traded</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {commodityData.map((commodity) => (
-                <div key={commodity.symbol} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <div key={commodity.symbol} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6" title={`${commodity.name} – ${commodity.category} (${commodity.unit})`}>
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">{commodity.name}</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white" title={`${commodity.name} – ${commodity.category}`}>{commodity.name}</h4>
                       <p className="text-sm text-gray-500 dark:text-gray-400">{commodity.category}</p>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -815,7 +902,7 @@ function App() {
                 </h3>
                 <div className="space-y-3">
                   {commodityGainersLosers.gainers.slice(0, 5).map((commodity, index) => (
-                    <div key={commodity.symbol} className="flex justify-between items-center">
+                    <div key={commodity.symbol} className="flex justify-between items-center" title={`${commodity.name} – ${commodity.symbol} (${commodity.unit || ''}) +${commodity.changePercent.toFixed(2)}%`}>
                       <div>
                         <div className="font-medium text-gray-900 dark:text-white">{commodity.name}</div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">{commodity.symbol}</div>
@@ -844,7 +931,7 @@ function App() {
                 </h3>
                 <div className="space-y-3">
                   {commodityGainersLosers.losers.slice(0, 5).map((commodity, index) => (
-                    <div key={commodity.symbol} className="flex justify-between items-center">
+                    <div key={commodity.symbol} className="flex justify-between items-center" title={`${commodity.name} – ${commodity.symbol} (${commodity.unit || ''}) ${commodity.changePercent.toFixed(2)}%`}>
                       <div>
                         <div className="font-medium text-gray-900 dark:text-white">{commodity.name}</div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">{commodity.symbol}</div>
@@ -875,7 +962,7 @@ function App() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {customCommodities.map((commodity) => (
-                    <div key={commodity.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group">
+                    <div key={commodity.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group" title={`${commodity.symbol} – ${commodity.name} (${commodity.exchange || commodity.region})`}>
                       <button
                         onClick={() => removeFromWatchlist(commodity.id, 'commodity')}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
@@ -885,7 +972,7 @@ function App() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900 dark:text-white">{commodity.symbol}</h4>
+                            <h4 className="font-semibold text-gray-900 dark:text-white" title={commodity.name}>{commodity.symbol}</h4>
                             <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
                               {commodity.exchange}
                             </span>
@@ -939,10 +1026,10 @@ function App() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Forex - Top 10 Most Traded Pairs</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               {forexData.map((pair) => (
-                <div key={pair.symbol} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+                <div key={pair.symbol} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4" title={`${pair.name} – ${pair.baseCurrency}/${pair.quoteCurrency}`}> 
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{pair.symbol}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white" title={`${pair.name}`}>{pair.symbol}</h3>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{pair.name}</p>
                       <div className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
                         {pair.price.toFixed(5)}
@@ -999,7 +1086,7 @@ function App() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                   {customForex.map((forex) => (
-                    <div key={forex.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group">
+                    <div key={forex.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group" title={`${forex.symbol} – ${forex.name} (${forex.exchange || forex.region})`}>
                       <button
                         onClick={() => removeFromWatchlist(forex.id, 'currency')}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
@@ -1009,7 +1096,7 @@ function App() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900 dark:text-white">{forex.symbol}</h4>
+                            <h4 className="font-semibold text-gray-900 dark:text-white" title={forex.name}>{forex.symbol}</h4>
                             <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
                               {forex.exchange}
                             </span>
@@ -1207,7 +1294,7 @@ function App() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {customCrypto.map((crypto) => (
-                    <div key={crypto.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group">
+                    <div key={crypto.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 relative group" title={`${crypto.symbol} – ${crypto.name} (${crypto.exchange || crypto.region})`}>
                       <button
                         onClick={() => removeFromWatchlist(crypto.id, 'crypto')}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
@@ -1217,7 +1304,7 @@ function App() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900 dark:text-white">{crypto.symbol}</h4>
+                            <h4 className="font-semibold text-gray-900 dark:text-white" title={crypto.name}>{crypto.symbol}</h4>
                             <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
                               {crypto.exchange}
                             </span>

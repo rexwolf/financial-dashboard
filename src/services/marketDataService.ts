@@ -3,10 +3,13 @@ import { MarketData, ChartData, CommodityData, ForexData, MarketEvent, Cryptocur
 
 // API Configuration - Using multiple reliable sources
 const ALPHA_VANTAGE_API_KEY = process.env.REACT_APP_ALPHA_VANTAGE_API_KEY || 'demo';
+const API_BASE = process.env.REACT_APP_API_BASE_URL;
 const ALPHA_VANTAGE_BASE_URL = 'https://www.alphavantage.co/query';
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 const POLYGON_API_KEY = process.env.REACT_APP_POLYGON_API_KEY;
 const POLYGON_BASE_URL = 'https://api.polygon.io';
+const FMP_API_KEY = process.env.REACT_APP_FMP_API_KEY;
+const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
 const EXCHANGERATE_API_BASE_URL = 'https://api.exchangerate-api.com/v4';
 const NEWSAPI_KEY = process.env.REACT_APP_NEWSAPI_KEY;
 const NEWSAPI_BASE_URL = 'https://newsapi.org/v2';
@@ -45,11 +48,66 @@ export class MarketDataService {
   }
 
   // Real stock quote from Alpha Vantage
-  async getQuote(symbol: string): Promise<MarketData> {
+  async getQuote(symbol: string, opts?: { allowFallback?: boolean }): Promise<MarketData> {
     const cacheKey = `quote_${symbol}`;
     const cached = this.getCachedData<MarketData>(cacheKey);
     if (cached) return cached;
 
+    // Try FMP first if configured (richer quote payload, supports batch)
+    if (FMP_API_KEY) {
+      try {
+        const resp = await axios.get(`${FMP_BASE_URL}/quote/${encodeURIComponent(symbol)}`, {
+          params: { apikey: FMP_API_KEY },
+          timeout: 10000,
+        });
+        const item = Array.isArray(resp.data) ? resp.data[0] : null;
+        if (item && item.price != null) {
+          const md: MarketData = {
+            symbol: (item.symbol || symbol).toUpperCase(),
+            price: Number(item.price),
+            change: Number(item.change ?? (item.price - (item.previousClose ?? item.price))),
+            changePercent: Number(item.changesPercentage ?? 0),
+            volume: Number(item.volume ?? 0),
+            marketCap: item.marketCap ?? 0,
+            timestamp: new Date().toISOString(),
+          };
+          this.setCacheData(cacheKey, md);
+          return md;
+        }
+      } catch (e) {
+        // fall through to other providers
+      }
+    }
+
+    // Try Polygon previous close as a minimal real close price
+    if (POLYGON_API_KEY) {
+      try {
+        const prevResp = await axios.get(`${POLYGON_BASE_URL}/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev`, {
+          params: { adjusted: 'true', apiKey: POLYGON_API_KEY },
+          timeout: 10000,
+        });
+        const result = prevResp.data?.results?.[0];
+        if (result) {
+          const close = Number(result.c);
+          const open = Number(result.o);
+          const md: MarketData = {
+            symbol: symbol.toUpperCase(),
+            price: close,
+            change: close - open,
+            changePercent: open ? ((close - open) / open) * 100 : 0,
+            volume: Number(result.v ?? 0),
+            marketCap: 0,
+            timestamp: new Date().toISOString(),
+          };
+          this.setCacheData(cacheKey, md);
+          return md;
+        }
+      } catch (e) {
+        // fall through
+      }
+    }
+
+    // Fallback to Alpha Vantage (still real)
     try {
       const response = await axios.get(ALPHA_VANTAGE_BASE_URL, {
         params: {
@@ -78,57 +136,7 @@ export class MarketDataService {
       this.setCacheData(cacheKey, marketData);
       return marketData;
     } catch (error) {
-      console.error(`Error fetching quote for ${symbol}, using fallback data:`, error);
-      
-      // Fallback data for common symbols
-      const fallbackData: { [key: string]: Partial<MarketData> } = {
-        'SPY': { name: 'SPDR S&P 500 ETF', price: 589.42, change: -2.35, changePercent: -0.40, volume: 45234567 },
-        'QQQ': { name: 'Invesco QQQ ETF', price: 502.18, change: 1.87, changePercent: 0.37, volume: 32145678 },
-        'DIA': { name: 'SPDR Dow Jones ETF', price: 441.29, change: -0.92, changePercent: -0.21, volume: 12456789 },
-        'VTI': { name: 'Vanguard Total Stock Market ETF', price: 293.84, change: -1.23, changePercent: -0.42, volume: 18765432 },
-        'AAPL': { name: 'Apple Inc.', price: 234.56, change: 2.34, changePercent: 1.01, volume: 67890123 },
-        'GOOGL': { name: 'Alphabet Inc.', price: 198.76, change: -1.45, changePercent: -0.72, volume: 23456789 },
-        'MSFT': { name: 'Microsoft Corporation', price: 456.78, change: 3.21, changePercent: 0.71, volume: 34567890 },
-        'TSLA': { name: 'Tesla, Inc.', price: 298.45, change: -5.67, changePercent: -1.86, volume: 56789012 },
-        'AMZN': { name: 'Amazon.com, Inc.', price: 234.89, change: 1.89, changePercent: 0.81, volume: 45678901 },
-        'NVDA': { name: 'NVIDIA Corporation', price: 178.90, change: 4.56, changePercent: 2.61, volume: 78901234 },
-        'FXI': { name: 'iShares China Large-Cap ETF', price: 23.45, change: 0.34, changePercent: 1.47, volume: 8765432 },
-        'EWH': { name: 'iShares MSCI Hong Kong ETF', price: 18.67, change: -0.12, changePercent: -0.64, volume: 5432187 },
-        'GOLD': { name: 'Gold', price: 2658.90, change: 12.40, changePercent: 0.47, volume: 245678 },
-        'USDCNY': { name: 'USD/CNY', price: 7.13, change: 0.02, changePercent: 0.28, volume: 0 },
-      };
-
-      const fallback = fallbackData[symbol.toUpperCase()];
-      if (fallback) {
-        const marketData: MarketData = {
-          symbol: symbol.toUpperCase(),
-          name: fallback.name || symbol,
-          price: fallback.price || 100.00,
-          change: fallback.change || 0,
-          changePercent: fallback.changePercent || 0,
-          volume: fallback.volume || 1000000,
-          marketCap: 0,
-          timestamp: new Date().toISOString(),
-        };
-
-        this.setCacheData(cacheKey, marketData, 5 * 60 * 1000); // 5min cache for fallback
-        return marketData;
-      }
-
-      // Generic fallback for unknown symbols
-      const genericFallback: MarketData = {
-        symbol: symbol.toUpperCase(),
-        name: symbol,
-        price: 100.00,
-        change: (Math.random() - 0.5) * 10, // Random change between -5 and 5
-        changePercent: (Math.random() - 0.5) * 5, // Random percentage between -2.5 and 2.5
-        volume: Math.floor(Math.random() * 10000000) + 1000000, // Random volume
-        marketCap: 0,
-        timestamp: new Date().toISOString(),
-      };
-
-      this.setCacheData(cacheKey, genericFallback, 5 * 60 * 1000);
-      return genericFallback;
+      throw error;
     }
   }
 
@@ -177,104 +185,79 @@ export class MarketDataService {
 
   // Real market indexes - Major global indices with fallback
   async getKeyMarketIndexes(): Promise<MarketData[]> {
+    if (API_BASE) {
+      try {
+        const resp = await axios.get(`${API_BASE}/api/market/indexes`, { timeout: 10000 });
+        const data = resp.data as MarketData[];
+        this.setCacheData('key_market_indexes', data);
+        return data;
+      } catch (e) {
+        console.error('Backend indexes fetch failed, fallback to direct providers');
+      }
+    }
     const cacheKey = 'key_market_indexes';
     const cached = this.getCachedData<MarketData[]>(cacheKey);
     if (cached) return cached;
 
+    // Keep within Alpha Vantage free-tier limit (5/min). Fetch 4 to be safe.
     const symbols = [
-      'SPY',     // S&P 500 ETF
-      'QQQ',     // NASDAQ 100 ETF
-      'DIA',     // DOW ETF
-      'FXI',     // China Large Cap ETF
-      'EWH',     // Hong Kong ETF
-      'VTI',     // Total Stock Market ETF
+      'SPY', // US
+      'FXI', // China
+      'EWH', // Hong Kong
+      'EWS', // Singapore
     ];
 
-    try {
-      const promises = symbols.map(symbol => this.getQuote(symbol));
-      const results = await Promise.allSettled(promises);
-      
-      const marketData = results
-        .filter((result): result is PromiseFulfilledResult<MarketData> => result.status === 'fulfilled')
-        .map(result => result.value);
+    const promises = symbols.map(symbol => this.getQuote(symbol, { allowFallback: false }));
+    const results = await Promise.allSettled(promises);
+    const marketData = results
+      .filter((result): result is PromiseFulfilledResult<MarketData> => result.status === 'fulfilled')
+      .map(result => result.value);
 
-      if (marketData.length === 0) {
-        throw new Error('Unable to fetch any market index data');
-      }
-
-      this.setCacheData(cacheKey, marketData);
-      return marketData;
-    } catch (error) {
-      console.error('Error fetching market indexes, using fallback data:', error);
-      
-      // Fallback data with realistic recent values
-      const fallbackData: MarketData[] = [
-        {
-          symbol: 'SPY',
-          name: 'SPDR S&P 500 ETF',
-          price: 589.42,
-          change: -2.35,
-          changePercent: -0.40,
-          volume: 45234567,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          symbol: 'QQQ',
-          name: 'Invesco QQQ ETF',
-          price: 502.18,
-          change: 1.87,
-          changePercent: 0.37,
-          volume: 32145678,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          symbol: 'DIA',
-          name: 'SPDR Dow Jones ETF',
-          price: 441.29,
-          change: -0.92,
-          changePercent: -0.21,
-          volume: 12456789,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          symbol: 'FXI',
-          name: 'iShares China Large-Cap ETF',
-          price: 23.45,
-          change: 0.34,
-          changePercent: 1.47,
-          volume: 8765432,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          symbol: 'EWH',
-          name: 'iShares MSCI Hong Kong ETF',
-          price: 18.67,
-          change: -0.12,
-          changePercent: -0.64,
-          volume: 5432187,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          symbol: 'VTI',
-          name: 'Vanguard Total Stock Market ETF',
-          price: 293.84,
-          change: -1.23,
-          changePercent: -0.42,
-          volume: 18765432,
-          timestamp: new Date().toISOString(),
-        },
-      ];
-
-      this.setCacheData(cacheKey, fallbackData, 5 * 60 * 1000); // 5min cache for fallback
-      return fallbackData;
-    }
+    // Cache even partial real results to avoid flicker; don't fabricate data
+    this.setCacheData(cacheKey, marketData);
+    return marketData;
   }
 
   // Real top gainers and losers from Alpha Vantage
-  async getTopGainersLosers(market: 'US' | 'CN' | 'HK'): Promise<{gainers: MarketData[], losers: MarketData[]}> {
+  async getTopGainersLosers(market: 'US' | 'CN' | 'HK' | 'SG'): Promise<{gainers: MarketData[], losers: MarketData[]}> {
+    if (API_BASE) {
+      try {
+        const resp = await axios.get(`${API_BASE}/api/market/movers`, { params: { market }, timeout: 10000 });
+        const result = resp.data as {gainers: MarketData[], losers: MarketData[]};
+        this.setCacheData(`gainers_losers_${market}`, result);
+        return result;
+      } catch (e) {
+        console.error('Backend movers fetch failed, fallback to direct providers');
+      }
+    }
     const cacheKey = `gainers_losers_${market}`;
     const cached = this.getCachedData<{gainers: MarketData[], losers: MarketData[]}>(cacheKey);
     if (cached) return cached;
+
+    // Prefer FMP for US market movers if configured
+    if (market === 'US' && FMP_API_KEY) {
+      try {
+        const [gainersResp, losersResp] = await Promise.all([
+          axios.get(`${FMP_BASE_URL}/stock_market/gainers`, { params: { apikey: FMP_API_KEY }, timeout: 10000 }),
+          axios.get(`${FMP_BASE_URL}/stock_market/losers`, { params: { apikey: FMP_API_KEY }, timeout: 10000 }),
+        ]);
+        const toMD = (arr: any[]): MarketData[] =>
+          (arr || []).slice(0, 5).map((s: any) => ({
+            symbol: String(s.symbol || '').toUpperCase(),
+            price: Number(s.price ?? 0),
+            change: Number(s.change ?? 0),
+            changePercent: Number(s.changesPercentage ?? 0),
+            volume: Number(s.volume ?? 0),
+            marketCap: Number(s.marketCap ?? 0),
+            timestamp: new Date().toISOString(),
+          }));
+        const result = { gainers: toMD(gainersResp.data), losers: toMD(losersResp.data) };
+        this.setCacheData(cacheKey, result);
+        return result;
+      } catch (e) {
+        // fall back to Alpha Vantage
+      }
+    }
 
     try {
       const response = await axios.get(ALPHA_VANTAGE_BASE_URL, {
@@ -310,137 +293,68 @@ export class MarketDataService {
       this.setCacheData(cacheKey, result);
       return result;
     } catch (error) {
-      console.error(`Error fetching gainers/losers for ${market}, using fallback data:`, error);
-      
-      // Fallback gainers/losers data with realistic recent market movements
-      const fallbackData = {
-        gainers: [
-          {
-            symbol: 'NVDA',
-            name: 'NVIDIA Corporation',
-            price: 178.90,
-            change: 8.45,
-            changePercent: 4.96,
-            volume: 87654321,
-            marketCap: 4400000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'AMD',
-            name: 'Advanced Micro Devices',
-            price: 145.32,
-            change: 6.78,
-            changePercent: 4.89,
-            volume: 54321987,
-            marketCap: 234000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'TSLA',
-            name: 'Tesla, Inc.',
-            price: 298.45,
-            change: 11.23,
-            changePercent: 3.91,
-            volume: 76543210,
-            marketCap: 950000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'AMZN',
-            name: 'Amazon.com, Inc.',
-            price: 234.89,
-            change: 7.89,
-            changePercent: 3.47,
-            volume: 43210987,
-            marketCap: 1800000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'GOOGL',
-            name: 'Alphabet Inc.',
-            price: 198.76,
-            change: 6.21,
-            changePercent: 3.23,
-            volume: 32109876,
-            marketCap: 2100000000000,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-        losers: [
-          {
-            symbol: 'META',
-            name: 'Meta Platforms, Inc.',
-            price: 521.34,
-            change: -18.45,
-            changePercent: -3.42,
-            volume: 45678901,
-            marketCap: 1300000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'NFLX',
-            name: 'Netflix, Inc.',
-            price: 678.90,
-            change: -21.67,
-            changePercent: -3.09,
-            volume: 23456789,
-            marketCap: 300000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'PYPL',
-            name: 'PayPal Holdings, Inc.',
-            price: 89.45,
-            change: -2.34,
-            changePercent: -2.55,
-            volume: 34567890,
-            marketCap: 100000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'UBER',
-            name: 'Uber Technologies, Inc.',
-            price: 78.23,
-            change: -1.89,
-            changePercent: -2.36,
-            volume: 56789012,
-            marketCap: 160000000000,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: 'SPOT',
-            name: 'Spotify Technology S.A.',
-            price: 345.67,
-            change: -7.89,
-            changePercent: -2.23,
-            volume: 12345678,
-            marketCap: 67000000000,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      };
-
-      this.setCacheData(cacheKey, fallbackData, 5 * 60 * 1000); // 5min cache for fallback
-      return fallbackData;
+      throw error;
     }
   }
 
   // Real commodity prices from Alpha Vantage - Top 8 most traded
   async getCommodityPrices(): Promise<CommodityData[]> {
+    if (API_BASE) {
+      try {
+        const resp = await axios.get(`${API_BASE}/api/commodities`, { timeout: 10000 });
+        const data = resp.data as CommodityData[];
+        this.setCacheData('commodities', data);
+        return data;
+      } catch (e) {
+        console.error('Backend commodities fetch failed, fallback to direct providers');
+      }
+    }
     const cacheKey = 'commodities';
     const cached = this.getCachedData<CommodityData[]>(cacheKey);
     if (cached) return cached;
 
-    // Top 8 most traded commodities globally
+    // Prefer FMP aggregated commodities if configured
+    if (FMP_API_KEY) {
+      try {
+        const res = await axios.get(`${FMP_BASE_URL}/quotes/commodity`, { params: { apikey: FMP_API_KEY }, timeout: 10000 });
+        const list: any[] = Array.isArray(res.data) ? res.data : [];
+        // Map a subset to our schema
+        const pick = (sym: string) => list.find(i => String(i.symbol).toUpperCase().includes(sym));
+        const mapItem = (i: any, name: string, unit: string, category: 'Energy' | 'Metals' | 'Agriculture'): CommodityData | null => {
+          if (!i) return null;
+          return {
+            symbol: String(i.symbol || name).toUpperCase(),
+            name,
+            price: Number(i.price ?? 0),
+            change: Number(i.change ?? 0),
+            changePercent: Number(i.changesPercentage ?? 0),
+            unit,
+            category,
+          };
+        };
+        const mapped = [
+          mapItem(pick('WTI'), 'Crude Oil WTI', 'USD/barrel', 'Energy'),
+          mapItem(pick('BRENT'), 'Brent Crude', 'USD/barrel', 'Energy'),
+          mapItem(pick('GOLD'), 'Gold', 'USD/oz', 'Metals'),
+          mapItem(pick('SILVER'), 'Silver', 'USD/oz', 'Metals'),
+          mapItem(pick('COPPER'), 'Copper', 'USD/lb', 'Metals'),
+          mapItem(pick('WHEAT'), 'Wheat', 'USD/bushel', 'Agriculture'),
+          mapItem(pick('CORN'), 'Corn', 'USD/bushel', 'Agriculture'),
+        ].filter(Boolean) as CommodityData[];
+        if (mapped.length === 0) throw new Error('No commodity data');
+        this.setCacheData(cacheKey, mapped);
+        return mapped;
+      } catch (e) {
+        // fall through to Alpha Vantage path
+      }
+    }
+
+    // Alpha Vantage compact commodity endpoints (may be limited; keep subset)
     const commoditySymbols = [
       { symbol: 'CRUDE_OIL_WTI', name: 'Crude Oil WTI', unit: 'USD/barrel', category: 'Energy' },
-      { symbol: 'BRENT', name: 'Brent Crude', unit: 'USD/barrel', category: 'Energy' },
-      { symbol: 'NATURAL_GAS', name: 'Natural Gas', unit: 'USD/MMBtu', category: 'Energy' },
       { symbol: 'GOLD', name: 'Gold', unit: 'USD/oz', category: 'Metals' },
       { symbol: 'SILVER', name: 'Silver', unit: 'USD/oz', category: 'Metals' },
       { symbol: 'COPPER', name: 'Copper', unit: 'USD/lb', category: 'Metals' },
-      { symbol: 'WHEAT', name: 'Wheat', unit: 'USD/bushel', category: 'Agriculture' },
-      { symbol: 'CORN', name: 'Corn', unit: 'USD/bushel', category: 'Agriculture' },
     ];
 
     try {
@@ -491,86 +405,7 @@ export class MarketDataService {
       this.setCacheData(cacheKey, commodities);
       return commodities;
     } catch (error) {
-      console.error('Error fetching commodity prices, using fallback data:', error);
-      
-      // Fallback commodity data with realistic recent values
-      const fallbackData: CommodityData[] = [
-        {
-          symbol: 'CRUDE_OIL_WTI',
-          name: 'Crude Oil WTI',
-          price: 72.35,
-          change: 0.85,
-          changePercent: 1.19,
-          unit: 'USD/barrel',
-          category: 'Energy',
-        },
-        {
-          symbol: 'BRENT',
-          name: 'Brent Crude',
-          price: 75.84,
-          change: 0.92,
-          changePercent: 1.23,
-          unit: 'USD/barrel',
-          category: 'Energy',
-        },
-        {
-          symbol: 'NATURAL_GAS',
-          name: 'Natural Gas',
-          price: 2.87,
-          change: -0.05,
-          changePercent: -1.71,
-          unit: 'USD/MMBtu',
-          category: 'Energy',
-        },
-        {
-          symbol: 'GOLD',
-          name: 'Gold',
-          price: 2658.90,
-          change: 12.40,
-          changePercent: 0.47,
-          unit: 'USD/oz',
-          category: 'Metals',
-        },
-        {
-          symbol: 'SILVER',
-          name: 'Silver',
-          price: 31.45,
-          change: -0.23,
-          changePercent: -0.73,
-          unit: 'USD/oz',
-          category: 'Metals',
-        },
-        {
-          symbol: 'COPPER',
-          name: 'Copper',
-          price: 4.23,
-          change: 0.07,
-          changePercent: 1.68,
-          unit: 'USD/lb',
-          category: 'Metals',
-        },
-        {
-          symbol: 'WHEAT',
-          name: 'Wheat',
-          price: 5.67,
-          change: -0.08,
-          changePercent: -1.39,
-          unit: 'USD/bushel',
-          category: 'Agriculture',
-        },
-        {
-          symbol: 'CORN',
-          name: 'Corn',
-          price: 4.32,
-          change: 0.02,
-          changePercent: 0.46,
-          unit: 'USD/bushel',
-          category: 'Agriculture',
-        },
-      ];
-
-      this.setCacheData(cacheKey, fallbackData, 5 * 60 * 1000); // 5min cache for fallback
-      return fallbackData;
+      throw error;
     }
   }
 
@@ -601,6 +436,16 @@ export class MarketDataService {
 
   // Real forex data from ExchangeRate-API
   async getTopForexPairs(): Promise<ForexData[]> {
+    if (API_BASE) {
+      try {
+        const resp = await axios.get(`${API_BASE}/api/forex/top`, { timeout: 10000 });
+        const data = resp.data as ForexData[];
+        this.setCacheData('top_forex_pairs', data);
+        return data;
+      } catch (e) {
+        console.error('Backend forex fetch failed, fallback to direct providers');
+      }
+    }
     const cacheKey = 'top_forex_pairs';
     const cached = this.getCachedData<ForexData[]>(cacheKey);
     if (cached) return cached;
@@ -675,6 +520,16 @@ export class MarketDataService {
 
   // Real cryptocurrency data from CoinGecko
   async getTopCryptocurrencies(): Promise<CryptocurrencyData[]> {
+    if (API_BASE) {
+      try {
+        const resp = await axios.get(`${API_BASE}/api/crypto/top`, { timeout: 10000 });
+        const data = resp.data as CryptocurrencyData[];
+        this.setCacheData('top_cryptocurrencies', data);
+        return data;
+      } catch (e) {
+        console.error('Backend crypto fetch failed, fallback to direct providers');
+      }
+    }
     const cacheKey = 'top_cryptocurrencies';
     const cached = this.getCachedData<CryptocurrencyData[]>(cacheKey);
     if (cached) return cached;
@@ -823,79 +678,41 @@ export class MarketDataService {
 
   // Real upcoming events would require a financial calendar API
   async getUpcomingMarketEvents(): Promise<MarketEvent[]> {
-    const cacheKey = 'upcoming_market_events';
-    const cached = this.getCachedData<MarketEvent[]>(cacheKey);
-    if (cached) return cached;
-
-    // For upcoming events, you'd need a financial calendar API like:
-    // - Financial Modeling Prep
-    // - Alpha Vantage earnings calendar
-    // - Economic calendar APIs
-    
-    try {
-      // Since earnings calendar has API limits, create sample upcoming events
-      // In production, you'd use APIs like Financial Modeling Prep, Benzinga, or TraderMade
-      const today = new Date();
-      const events: MarketEvent[] = [];
-      
-      // Generate realistic upcoming events for the next 7 days
-      const eventTemplates = [
-        { title: 'Federal Reserve Interest Rate Decision', impact: 'High' as const, type: 'central_bank' as const, markets: ['Stocks', 'Forex', 'Bonds'] },
-        { title: 'Non-Farm Payrolls Report', impact: 'High' as const, type: 'economic' as const, markets: ['Stocks', 'Forex'] },
-        { title: 'Consumer Price Index (CPI) Data', impact: 'High' as const, type: 'economic' as const, markets: ['Stocks', 'Bonds'] },
-        { title: 'GDP Growth Report', impact: 'Medium' as const, type: 'economic' as const, markets: ['Stocks'] },
-        { title: 'Apple Inc. Quarterly Earnings', impact: 'Medium' as const, type: 'earnings' as const, markets: ['Stocks'] },
-        { title: 'Tesla Earnings Announcement', impact: 'Medium' as const, type: 'earnings' as const, markets: ['Stocks'] },
-        { title: 'Crude Oil Inventory Report', impact: 'Medium' as const, type: 'other' as const, markets: ['Commodities', 'Energy'] },
-        { title: 'ECB Monetary Policy Meeting', impact: 'High' as const, type: 'central_bank' as const, markets: ['Forex', 'Stocks'] }
-      ];
-
-      for (let i = 0; i < 6; i++) {
-        const template = eventTemplates[i % eventTemplates.length];
-        const eventDate = new Date(today);
-        eventDate.setDate(today.getDate() + i + 1);
-        eventDate.setHours(9 + (i % 8), 30, 0, 0);
-
-        events.push({
-          id: `upcoming_${i}_${Date.now()}`,
-          title: template.title,
-          description: `Scheduled ${template.type} event that may impact market movements`,
-          impact: template.impact,
-          eventType: template.type,
-          timestamp: eventDate.toISOString(),
-          affectedMarkets: template.markets,
-          sourceType: 'upcoming' as const,
-        });
-      }
-
-      this.setCacheData(cacheKey, events);
-      return events;
-    } catch (error) {
-      console.error('Error fetching upcoming market events:', error);
-      
-      // Fallback events
-      const fallbackEvents: MarketEvent[] = [{
-        id: 'fallback_1',
-        title: 'Market Analysis Available',
-        description: 'Check back later for upcoming market events',
-        impact: 'Low' as const,
-        eventType: 'other' as const,
-        timestamp: new Date(Date.now() + 86400000).toISOString(),
-        affectedMarkets: ['General'],
-        sourceType: 'upcoming' as const,
-      }];
-      
-      return fallbackEvents;
-    }
+    // No mock upcoming events; integrate a real calendar API to enable this.
+    return [];
   }
 
   async getMultipleQuotes(symbols: string[]): Promise<MarketData[]> {
-    const promises = symbols.map(symbol => this.getQuote(symbol));
-    const results = await Promise.allSettled(promises);
-    
-    return results
-      .filter((result): result is PromiseFulfilledResult<MarketData> => result.status === 'fulfilled')
-      .map(result => result.value);
+    if (FMP_API_KEY && symbols.length > 0) {
+      try {
+        const joined = symbols.slice(0, 50).join(',');
+        const resp = await axios.get(`${FMP_BASE_URL}/quote/${encodeURIComponent(joined)}`, {
+          params: { apikey: FMP_API_KEY },
+          timeout: 10000,
+        });
+        const arr: any[] = Array.isArray(resp.data) ? resp.data : [];
+        return arr.map((item: any) => ({
+          symbol: String(item.symbol || '').toUpperCase(),
+          price: Number(item.price ?? 0),
+          change: Number(item.change ?? 0),
+          changePercent: Number(item.changesPercentage ?? 0),
+          volume: Number(item.volume ?? 0),
+          marketCap: Number(item.marketCap ?? 0),
+          timestamp: new Date().toISOString(),
+        }));
+      } catch (e) {
+        // fall through to per-symbol
+      }
+    }
+    // Otherwise, fetch sequentially with Alpha Vantage (respecting limits by slicing)
+    const limited = symbols.slice(0, 4);
+    const out: MarketData[] = [];
+    for (const s of limited) {
+      try {
+        out.push(await this.getQuote(s, { allowFallback: false }));
+      } catch {}
+    }
+    return out;
   }
 }
 
