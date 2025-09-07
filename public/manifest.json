@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Financial Dashboard",
+  "name": "Financial Dashboard - Real-time Market Data & Investment Insights",
+  "description": "Professional financial dashboard with real-time stock quotes, market indices, cryptocurrency prices, and investment analysis.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -10,16 +11,51 @@
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "orientation": "portrait-primary",
+  "theme_color": "#1f2937",
+  "background_color": "#ffffff",
+  "categories": ["finance", "business", "productivity"],
+  "lang": "en",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Market Overview",
+      "short_name": "Markets",
+      "description": "View real-time market data and indices",
+      "url": "/?section=markets",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Portfolio",
+      "short_name": "Portfolio",
+      "description": "Track your investment portfolio",
+      "url": "/?section=portfolio",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Opportunities",
+      "short_name": "Opportunities",
+      "description": "Discover investment opportunities",
+      "url": "/?section=opportunities",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    }
+  ]
 }

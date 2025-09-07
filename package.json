@@ -18,6 +18,8 @@
     "postcss": "^8.5.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-helmet-async": "^2.0.5",
+    "react-router-dom": "^7.8.2",
     "react-scripts": "5.0.1",
     "recharts": "^3.1.2",
     "tailwindcss": "^3.4.17",
@@ -26,9 +28,24 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "dev": "./scripts/dev.sh",
     "build": "react-scripts build",
+    "build:prod": "./scripts/build.sh",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "test:ci": "react-scripts test --coverage --watchAll=false",
+    "eject": "react-scripts eject",
+    "lint": "eslint src/ --ext .ts,.tsx",
+    "lint:fix": "eslint src/ --ext .ts,.tsx --fix",
+    "format": "prettier --write src/",
+    "typecheck": "tsc --noEmit",
+    "analyze": "npm run build && npx bundle-analyzer build/static/js/*.js",
+    "serve": "serve -s build -l 5000",
+    "security:audit": "npm audit --audit-level moderate",
+    "security:fix": "npm audit fix",
+    "docker:build": "docker build -t financial-dashboard .",
+    "docker:run": "docker run -p 3000:80 financial-dashboard",
+    "deploy": "./scripts/deploy.sh",
+    "quality": "npm run lint && npm run typecheck && npm run test:ci"
   },
   "eslintConfig": {
     "extends": [

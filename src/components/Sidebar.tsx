@@ -8,7 +8,8 @@ import {
   ChevronLeft,
   Home,
   AlertTriangle,
-  Coins
+  Coins,
+  HelpCircle
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -29,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedSection, onSectionChange }) =
     { id: 'crypto', label: t('nav.crypto'), icon: Coins },
     { id: 'opportunities', label: t('nav.opportunities'), icon: Zap },
     { id: 'alerts', label: t('nav.alerts'), icon: AlertTriangle },
+    { id: 'support', label: 'Support', icon: HelpCircle },
     { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 

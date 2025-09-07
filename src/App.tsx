@@ -8,9 +8,18 @@ import { opportunityService } from './services/opportunityService';
 import { storageService } from './services/storageService';
 import { MarketHoursService } from './utils/marketHours';
 import { MarketData, CommodityData, OpportunityAlert, ForexData, MarketEvent, CustomWatchlistItem, CryptocurrencyData } from './types';
-import { TrendingUp, BarChart3, Zap, Clock, AlertTriangle, Plus, X } from 'lucide-react';
+import { TrendingUp, BarChart3, Zap, Clock, AlertTriangle, Plus, X, MessageCircle } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { AuthProvider } from './contexts/AuthContext';
+import FeedbackWidget from './components/support/FeedbackWidget';
+import Support from './components/pages/Support';
+import SubscriptionManagement from './components/subscription/SubscriptionManagement';
+import CheckoutSuccess from './components/subscription/CheckoutSuccess';
+import CheckoutCanceled from './components/subscription/CheckoutCanceled';
+import DynamicSEO from './components/DynamicSEO';
+import GoogleAnalytics, { trackEngagement, usePageTracking } from './components/GoogleAnalytics';
+import GoogleAdsRemarketing, { GoogleAdsTracker } from './components/GoogleAds';
 
 function App() {
   const [selectedSection, setSelectedSection] = useState(() => {
@@ -45,6 +54,19 @@ function App() {
   const [marketStatus, setMarketStatus] = useState(MarketHoursService.getAllMarketStatuses());
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [opportunityRefreshInterval, setOpportunityRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  // Track page views for Google Analytics
+  usePageTracking(`/${selectedSection}`, `${selectedSection.charAt(0).toUpperCase() + selectedSection.slice(1)} - Financial Dashboard`);
+
+  // Track section changes
+  const handleSectionChange = (section: string) => {
+    setSelectedSection(section);
+    localStorage.setItem('selectedSection', section);
+    
+    // Track user engagement
+    trackEngagement(section, 'section_change');
+  };
 
   useEffect(() => {
     fetchInitialData();
@@ -339,6 +361,10 @@ function App() {
       addedAt: new Date().toISOString(),
     };
 
+    // Track watchlist addition
+    GoogleAdsTracker.trackWatchlistAction('add', type, symbol);
+    trackEngagement('watchlist', 'add_item', 1);
+
     switch (type) {
       case 'stock':
         const newStocks = [newItem, ...customStocks];
@@ -365,27 +391,39 @@ function App() {
 
   // Remove item from watchlist
   const removeFromWatchlist = async (id: string, type: 'stock' | 'commodity' | 'currency' | 'crypto') => {
+    // Find the item to get its symbol for tracking
+    let removedItem;
     switch (type) {
       case 'stock':
+        removedItem = customStocks.find(item => item.id === id);
         const newStocks = customStocks.filter(item => item.id !== id);
         setCustomStocks(newStocks);
         await storageService.storeUserWatchlist('stocks', newStocks);
         break;
       case 'commodity':
+        removedItem = customCommodities.find(item => item.id === id);
         const newCommodities = customCommodities.filter(item => item.id !== id);
         setCustomCommodities(newCommodities);
         await storageService.storeUserWatchlist('commodities', newCommodities);
         break;
       case 'currency':
+        removedItem = customForex.find(item => item.id === id);
         const newForex = customForex.filter(item => item.id !== id);
         setCustomForex(newForex);
         await storageService.storeUserWatchlist('forex', newForex);
         break;
       case 'crypto':
+        removedItem = customCrypto.find(item => item.id === id);
         const newCrypto = customCrypto.filter(item => item.id !== id);
         setCustomCrypto(newCrypto);
         await storageService.storeUserWatchlist('crypto', newCrypto);
         break;
+    }
+
+    // Track watchlist removal
+    if (removedItem) {
+      GoogleAdsTracker.trackWatchlistAction('remove', type, removedItem.symbol);
+      trackEngagement('watchlist', 'remove_item', 1);
     }
   };
 
@@ -1511,6 +1549,16 @@ function App() {
             </div>
           </div>
         );
+      case 'support':
+        return <Support />;
+      case 'subscription':
+        return <SubscriptionManagement />;
+      case 'subscription-success':
+        return <CheckoutSuccess />;
+      case 'subscription-canceled':
+        return <CheckoutCanceled />;
+      case 'settings':
+        return <SubscriptionManagement />;
       default:
         return (
           <div className="flex items-center justify-center h-64">
@@ -1524,26 +1572,57 @@ function App() {
   };
 
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
-          <Header 
-            onAddToWatchlist={addToWatchlist} 
-            marketStatus={{
-              us: marketStatus[0],
-              china: marketStatus[1],
-              hongKong: marketStatus[2]
-            }} 
-          />
-          <div className="flex">
-            <Sidebar selectedSection={selectedSection} onSectionChange={setSelectedSection} />
-            <main className="flex-1 p-6 bg-gray-50 dark:bg-gray-900 transition-colors">
-              {renderContent()}
-            </main>
+    <GoogleAnalytics>
+      <AuthProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+              <DynamicSEO 
+                section={selectedSection}
+                marketData={marketData}
+                additionalKeywords={['financial data', 'market analysis']}
+              />
+              <GoogleAdsRemarketing 
+                section={selectedSection}
+                userType="free" // TODO: Get from auth context
+              />
+              <Header 
+              onAddToWatchlist={addToWatchlist} 
+              marketStatus={{
+                us: marketStatus[0],
+                china: marketStatus[1],
+                hongKong: marketStatus[2]
+              }} 
+            />
+            <div className="flex">
+              <Sidebar selectedSection={selectedSection} onSectionChange={handleSectionChange} />
+              <main className="flex-1 p-6 bg-gray-50 dark:bg-gray-900 transition-colors">
+                {renderContent()}
+              </main>
+            </div>
+
+            {/* Floating Feedback Button */}
+            <button
+              onClick={() => {
+                setIsFeedbackOpen(true);
+                trackEngagement('support', 'open_feedback_widget');
+              }}
+              className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-lg transition-colors z-40"
+              title="Send Feedback"
+            >
+              <MessageCircle className="h-6 w-6" />
+            </button>
+
+            {/* Feedback Widget */}
+            <FeedbackWidget 
+              isOpen={isFeedbackOpen} 
+              onClose={() => setIsFeedbackOpen(false)} 
+            />
           </div>
-        </div>
-      </LanguageProvider>
-    </ThemeProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    </AuthProvider>
+    </GoogleAnalytics>
   );
 }
 

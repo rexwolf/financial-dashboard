@@ -2,29 +2,103 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    
+    <!-- Primary SEO Meta Tags -->
+    <title>Financial Dashboard - Real-time Market Data & Investment Insights</title>
+    <meta name="title" content="Financial Dashboard - Real-time Market Data & Investment Insights" />
+    <meta name="description" content="Professional financial dashboard with real-time stock quotes, market indices, cryptocurrency prices, forex rates, and investment opportunities. Track your portfolio with advanced analytics." />
+    <meta name="keywords" content="financial dashboard, stock market, real-time quotes, investment analysis, portfolio tracking, market data, cryptocurrency, forex, trading platform" />
+    <meta name="author" content="Financial Dashboard" />
+    <meta name="robots" content="index, follow" />
+    <meta name="language" content="English" />
+    <meta name="revisit-after" content="1 day" />
+    
+    <!-- Viewport and Mobile -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
+    <meta name="theme-color" content="#1f2937" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Financial Dashboard" />
+    <meta name="msapplication-TileColor" content="#1f2937" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://financialdashboard.com/" />
+    <meta property="og:title" content="Financial Dashboard - Real-time Market Data & Investment Insights" />
+    <meta property="og:description" content="Professional financial dashboard with real-time stock quotes, market indices, cryptocurrency prices, forex rates, and investment opportunities." />
+    <meta property="og:image" content="%PUBLIC_URL%/og-image.jpg" />
+    <meta property="og:site_name" content="Financial Dashboard" />
+    <meta property="og:locale" content="en_US" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://financialdashboard.com/" />
+    <meta property="twitter:title" content="Financial Dashboard - Real-time Market Data & Investment Insights" />
+    <meta property="twitter:description" content="Professional financial dashboard with real-time stock quotes, market indices, cryptocurrency prices, forex rates, and investment opportunities." />
+    <meta property="twitter:image" content="%PUBLIC_URL%/og-image.jpg" />
+    <meta property="twitter:creator" content="@FinancialDashboard" />
+    
+    <!-- Favicons and Icons -->
+    <link rel="icon" type="image/x-icon" href="%PUBLIC_URL%/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="%PUBLIC_URL%/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
+    <link rel="mask-icon" href="%PUBLIC_URL%/safari-pinned-tab.svg" color="#1f2937" />
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://financialdashboard.com/" />
+    
+    <!-- Preload Critical Resources -->
+    <link rel="preload" href="%PUBLIC_URL%/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
+    
+    <!-- DNS Prefetch for External Resources -->
+    <link rel="dns-prefetch" href="//api.financialdashboard.com" />
+    <link rel="dns-prefetch" href="//fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="//www.google-analytics.com" />
+    
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Financial Dashboard",
+      "description": "Professional financial dashboard with real-time market data and investment insights",
+      "url": "https://financialdashboard.com",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web Browser",
+      "offers": {
+        "@type": "Offer",
+        "price": "29.00",
+        "priceCurrency": "USD",
+        "priceValidUntil": "2024-12-31",
+        "availability": "https://schema.org/InStock"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "Financial Dashboard Inc.",
+        "url": "https://financialdashboard.com"
+      },
+      "provider": {
+        "@type": "Organization",
+        "name": "Financial Dashboard Inc.",
+        "url": "https://financialdashboard.com"
+      }
+    }
+    </script>
+    
+    <!-- PWA Manifest -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
-
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+    
+    <!-- Performance Hints -->
+    <meta http-equiv="x-dns-prefetch-control" content="on" />
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
